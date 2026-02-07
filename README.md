@@ -24,11 +24,13 @@ py -3.12 -m venv venv
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 
-Configure API Keys
+# Configure API Keys
 
 In the same PowerShell window, set your API keys:
 $env:OPENAI_API_KEY="sk-..."
 $env:SERPER_API_KEY="..."
+
+---
 
 Prepare Your CV
 
