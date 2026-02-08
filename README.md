@@ -1,93 +1,98 @@
-# CV Job Finder (CrewAI)
+# CV Job Finder (AI Agent–based)
 
-Paste your CV (DOCX) → run one command → get a ranked list of job links + fit scores + gaps.
+A lightweight Python tool that uses **LLM-based AI agents** to analyze a CV, search real job postings, and rank jobs by relevance.
 
-**Outputs**
-- `shortlisted_jobs.md` (easy to read)
-- `shortlisted_jobs.json` (structured)
-- `crew_output.txt` (full logs)
+The agents reason over your CV and job descriptions using **prompt-based analysis (RAG-style, without vector databases)**.
 
 ---
 
-## Quick Start (tested on Windows 11, 5 minutes)
+## What It Does
 
-### 1) Download this project
-- Click **Code → Download ZIP**
-- Extract it
-- Open PowerShell in the extracted folder
+- Reads a CV (`.docx`) locally
+- AI agent extracts skills, domains, and seniority
+- AI agent generates job search queries
+- Finds real job postings via Google (Serper API)
+- Scrapes job descriptions
+- AI agent evaluates job–CV fit with reasoning and gaps
+- Outputs ranked job matches
 
+---
 
-### 2) Create and activate a virtual environment
-```powershell
+## AI Architecture (Simplified)
+
+- **CV Analyst Agent** – builds a structured profile from the CV  
+- **Search Planner Agent** – designs job search queries  
+- **Fit Evaluator Agent** – scores relevance and highlights gaps  
+
+Agents are implemented as **plain Python functions calling an LLM**  
+(no CrewAI framework, no vector database).
+
+---
+
+## Requirements
+
+- Python **3.12**
+- OpenAI API key
+- Serper API key
+
+---
+
+## Installation
+
+```bash
 py -3.12 -m venv venv
 .\venv\Scripts\activate
-python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
+---
 
-### 3) Set your API keys
-```powershell
+## API Keys
+```bash
 $env:OPENAI_API_KEY="sk-..."
-$env:SERPER_API_KEY="..."
+$env:SERPER_API_KEY="your-serper-key"
 ```
 
-### 4) Add your CV
-Put your CV in the project folder and name it exactly: "cvLLM.docx"
+---
 
-### 5) Run
-```powershell
+## Prepare CV
+
+Place your CV in the project folder as **`cvLLM.docx`**
+
+---
+
+## Run
+```bash
 python cv_job_finder.py
 ```
----
-
-### What it does:
-
-1- Reads your CV from .docx.
-
-2- An AI agent extracts your profile (skills, domains, seniority).
-
-3- Another AI agent generates job search queries.
-
-4- Searches job postings via Serper.
-
-5- Scrapes job pages.
-
-6- The last AI agent scores each job vs your CV and ranks the best matches.
 
 ---
 
-### Privacy & Safety
+## Output
 
-1- Your CV file stays on your machine.
+- `shortlisted_jobs.md` – ranked jobs
 
-2- The script sends text to:
+- `shortlisted_jobs.json` – structured results
 
-- OpenAI (LLM reasoning)
+- `crew_output.txt` – agent reasoning/logs
 
-- Serper (job search)
+- `cv_text.txt` – extracted CV text
 
-- Do not upload your CV to GitHub.
-
-- .gitignore prevents committing .docx, .env, and outputs.
+- All outputs are generated locally.
 
 ---
 
-### Troubleshooting
+## Privacy
 
-- Python not found / wrong version
+- CV processed locally
 
-```powershell
-py -0p
-```
+- No data stored or retained
 
-- Make sure Python 3.12 is installed.
-
-- Missing keys: Ensure OPENAI_API_KEY and SERPER_API_KEY are set (or .env exists).
+- External calls: OpenAI (LLM), Serper (job search)
 
 ---
 
-### Disclaimer 
-This is an experimental tool. Always verify job postings and requirements manually.
+## License
 
+MIT
 
