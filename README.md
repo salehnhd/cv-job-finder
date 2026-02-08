@@ -36,8 +36,9 @@ $env:SERPER_API_KEY="..."
 Put your CV in the project folder and name it exactly: "cvLLM.docx"
 
 ### 5) Run
+```powershell
 python cv_job_finder.py
-
+```
 ---
 
 ### What it does:
