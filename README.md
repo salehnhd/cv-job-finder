@@ -23,67 +23,71 @@ py -3.12 -m venv venv
 .\venv\Scripts\activate
 python -m pip install --upgrade pip
 pip install -r requirements.txt
+```
 
 # Configure API Keys
 
 In the same PowerShell window, set your API keys:
+```powershell
 $env:OPENAI_API_KEY="sk-..."
 $env:SERPER_API_KEY="..."
+```
 
----
-
-Prepare Your CV
+# Prepare Your CV
 
 Place your CV file in the project folder.
 
 Name the file exactly:
+```powershell
 cvLLM.docx
+```
 
-Run the Script
+#Run the Script
 
 With the virtual environment still active, run:
+```powershell
 python cv_job_finder.py
+```
 
-
-Output Files
+# Output Files
 
 After the script finishes, the following files will be created:
 
-shortlisted_jobs.md – human-readable table of best-matching jobs
+-shortlisted_jobs.md – human-readable table of best-matching jobs
 
-shortlisted_jobs.json – structured job data
+-shortlisted_jobs.json – structured job data
 
-crew_output.txt – full agent reasoning and logs
-
-
-
-
-Notes
-
-CrewAI memory and RAG are disabled to avoid heavy dependencies on Windows.
-
-Your CV is processed locally and is not stored or uploaded.
-
-Only OpenAI and Serper APIs are called externally.
+-crew_output.txt – full agent reasoning and logs
 
 
 
 
-Troubleshooting
+# Notes
+
+-CrewAI memory and RAG are disabled to avoid heavy dependencies on Windows.
+
+-Your CV is processed locally and is not stored or uploaded.
+
+-Only OpenAI and Serper APIs are called externally.
+
+
+
+
+# Troubleshooting
 
 If the script fails:
 
-Make sure Python 3.12 is installed and active
+-Make sure Python 3.12 is installed and active
 
-Ensure the virtual environment is activated
+-Ensure the virtual environment is activated
 
-Verify both API keys are set
+-Verify both API keys are set
 
-Check that the CV filename is exactly cvLLM.docx
+-Check that the CV filename is exactly cvLLM.docx
 
 
 
-Disclaimer
+# Disclaimer
 
-This project is provided for experimentation and personal use.
-Always verify job postings manually before applying.
+-This project is provided for experimentation and personal use.
+-Always verify job postings manually before applying.
