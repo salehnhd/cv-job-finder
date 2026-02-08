@@ -10,25 +10,25 @@ The diagram below shows the end-to-end workflow and how CrewAI agents interact w
 
 ```mermaid
 flowchart TD
-    A[User CV\n(.docx)] --> B[CV Parsing Layer\npython-docx]
-    B --> C[Extracted CV Text\ncv_text.txt]
+    A[User CV DOCX] --> B[CV Parsing Layer python-docx]
+    B --> C[Extracted CV Text]
 
-    C --> D[Agent 1: CV Analyst\nCrewAI]
-    D --> D1[Structured Profile\nSkills | Domains | Seniority]
+    C --> D[Agent 1 CV Analyst CrewAI]
+    D --> D1[Structured Profile Skills Domains Seniority]
 
-    D1 --> E[Agent 2: Job Search Planner\nCrewAI]
+    D1 --> E[Agent 2 Job Search Planner CrewAI]
     E --> E1[Search Queries]
 
-    E1 --> F[Job Search API\nSerper]
+    E1 --> F[Job Search API Serper]
     F --> G[Job Posting URLs]
 
-    G --> H[Web Scraper\nRequests + BeautifulSoup]
+    G --> H[Web Scraper Requests BeautifulSoup]
     H --> H1[Clean Job Descriptions]
 
-    H1 --> I[Agent 3: Job Fit Evaluator\nCrewAI]
+    H1 --> I[Agent 3 Job Fit Evaluator CrewAI]
     D1 --> I
 
-    I --> J[Ranked Job Matches\nScore | Reasoning | Gaps]
+    I --> J[Ranked Job Matches Scores Reasoning Gaps]
 
     J --> K[Output Files]
     K --> K1[shortlisted_jobs.json]
