@@ -6,6 +6,14 @@ The tool combines LLM-based reasoning with web search and basic scraping to comp
 
 ---
 
+## Architecture
+
+The diagram below shows how the AI agents interact with the CV, job search, and scoring pipeline.
+
+![System Architecture](architecture.svg)
+
+---
+
 ## What It Does
 
 - Reads a CV (`.docx`) locally  
