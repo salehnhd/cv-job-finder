@@ -42,7 +42,7 @@ Name the file exactly:
 cvLLM.docx
 ```
 
-#Run the Script
+# Run the Script
 
 With the virtual environment still active, run:
 ```powershell
