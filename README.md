@@ -4,34 +4,6 @@ A Python tool built with CrewAI that analyzes a CV in `.docx` format, searches f
 
 ---
 
-flowchart TD
-    A[User CV<br/>(.docx)] --> B[CV Parsing Layer<br/>python-docx]
-    B --> C[Extracted CV Text<br/>cv_text.txt]
-
-    C --> D[Agent 1: CV Analyst<br/>(CrewAI)]
-    D --> D1[Structured Profile<br/>Skills · Domains · Seniority]
-
-    D1 --> E[Agent 2: Job Search Planner<br/>(CrewAI)]
-    E --> E1[Search Queries]
-
-    E1 --> F[Job Search API<br/>(Serper)]
-    F --> G[Job Posting URLs]
-
-    G --> H[Web Scraper<br/>Requests + BeautifulSoup]
-    H --> H1[Clean Job Descriptions]
-
-    H1 --> I[Agent 3: Job Fit Evaluator<br/>(CrewAI)]
-    D1 --> I
-
-    I --> J[Ranked Job Matches<br/>Score · Reasoning · Gaps]
-
-    J --> K[Output Files]
-    K --> K1[shortlisted_jobs.json]
-    K --> K2[shortlisted_jobs.md]
-    K --> K3[crew_output.txt]
-
-
----
 
 ## Requirements
 
