@@ -1,493 +1,370 @@
-"""
-Windows-safe CrewAI CV->Job Search->Rank script 
-
-What it does:
-1) Reads your CV from cvLLM.docx
-2) Converts it to cv_text.txt
-3) Uses 3 CrewAI agents:
-   - CV Analyst: extracts skills/titles
-   - Search Planner: builds search queries
-   - Fit Ranker: searches job postings (Serper), scrapes pages, ranks fit
-4) Writes:
-   - crew_output.txt
-   - shortlisted_jobs.json
-   - shortlisted_jobs.md
-
-IMPORTANT:
-- Requires env vars set in the same terminal before running:
-    $env:OPENAI_API_KEY="sk-..."
-    $env:SERPER_API_KEY="..."
-
-- Avoids CrewAI "memory" to prevent embedchain/chroma/hnswlib build issues.
-
-Recommended installs (inside venv312):
-    python -m pip install crewai==0.28.8
-    python -m pip install "langchain==0.1.13" "langchain-core==0.1.35" "langchain-community==0.0.29" "langchain-openai==0.1.3"
-    python -m pip install python-docx requests beautifulsoup4
-"""
-
 import os
-import json
 import re
-from typing import Any, Dict, List
+import json
+import time
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 from bs4 import BeautifulSoup
 from docx import Document
-
-from crewai import Agent, Task, Crew
-
-
-# -----------------------------
-# ENV CHECK
-# -----------------------------
-if not os.getenv("OPENAI_API_KEY"):
-    raise RuntimeError(
-        "Missing OPENAI_API_KEY. Set it in PowerShell:\n"
-        '$env:OPENAI_API_KEY="sk-..."'
-    )
-
-if not os.getenv("SERPER_API_KEY"):
-    raise RuntimeError(
-        "Missing SERPER_API_KEY. Set it in PowerShell:\n"
-        '$env:SERPER_API_KEY="..."'
-    )
-
-os.environ["OPENAI_MODEL_NAME"] = os.getenv("OPENAI_MODEL_NAME", "gpt-3.5-turbo")
-
-# -----------------------------
-# CONFIG
-# -----------------------------
-CV_DOCX = "cvLLM.docx"
-CV_TEXT_PATH = "cv_text.txt"
-SERPER_URL = "https://google.serper.dev/search"
-
-# Control how many results per query and how many top jobs to evaluate deeply
-RESULTS_PER_QUERY = 10
-MAX_JOBS_TO_EVALUATE = 15
+from dotenv import load_dotenv
+from openai import OpenAI
+from pydantic import BaseModel, Field
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 
-# -----------------------------
-# DOCX -> TEXT
-# -----------------------------
-def docx_to_text(docx_path: str) -> str:
-    if not os.path.exists(docx_path):
-        raise FileNotFoundError(
-            f"CV DOCX not found: {docx_path}\n"
-            "Put cvLLM.docx in the same folder as this script, or update CV_DOCX path."
-        )
+# ----------------------------
+# Config
+# ----------------------------
+CV_FILENAME = "cvLLM.docx"
+MAX_JOBS_TO_EVALUATE = 12          # keep small to control time/cost
+REQUEST_TIMEOUT = 20
+USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) CV-Job-Finder/1.0"
 
-    doc = Document(docx_path)
-    parts: List[str] = []
+# Default model (you can change in env: OPENAI_MODEL)
+DEFAULT_MODEL = "gpt-4o-mini"
 
-    # paragraphs
+
+# ----------------------------
+# Helpers
+# ----------------------------
+def die(msg: str) -> None:
+    raise SystemExit(f"\n❌ {msg}\n")
+
+
+def read_docx_as_text(path: str) -> str:
+    doc = Document(path)
+    parts = []
     for p in doc.paragraphs:
         t = (p.text or "").strip()
         if t:
             parts.append(t)
-
-    # tables (flatten)
-    for table in doc.tables:
-        parts.append("\n---\n")
-        for row in table.rows:
-            cells = [(c.text or "").strip() for c in row.cells]
-            cells = [c for c in cells if c]
-            if cells:
-                parts.append(" | ".join(cells))
-
-    text = "\n".join(parts).strip() + "\n"
-    with open(CV_TEXT_PATH, "w", encoding="utf-8") as f:
-        f.write(text)
-
-    return text
+    return "\n".join(parts).strip()
 
 
-# -----------------------------
-# SIMPLE WEB TOOLS (Serper + Scrape)
-# -----------------------------
-def serper_search(query: str, k: int = 10) -> List[Dict[str, str]]:
-    headers = {
-        "X-API-KEY": os.getenv("SERPER_API_KEY"),
-        "Content-Type": "application/json",
-    }
-    payload = {"q": query, "num": k}
-    r = requests.post(SERPER_URL, headers=headers, json=payload, timeout=30)
+def clean_text(s: str) -> str:
+    s = re.sub(r"\s+", " ", s)
+    return s.strip()
+
+
+def safe_filename(s: str) -> str:
+    s = re.sub(r"[^a-zA-Z0-9._-]+", "_", s)
+    return s[:120]
+
+
+def fetch_html(url: str) -> Optional[str]:
+    try:
+        r = requests.get(
+            url,
+            headers={"User-Agent": USER_AGENT},
+            timeout=REQUEST_TIMEOUT,
+            allow_redirects=True,
+        )
+        if r.status_code >= 400:
+            return None
+        return r.text
+    except Exception:
+        return None
+
+
+def extract_main_text_from_html(html: str) -> str:
+    soup = BeautifulSoup(html, "html.parser")
+
+    # Remove junk
+    for tag in soup(["script", "style", "noscript", "svg", "img", "header", "footer", "nav", "aside"]):
+        tag.decompose()
+
+    # Prefer <main> if present
+    main = soup.find("main")
+    text = main.get_text(" ", strip=True) if main else soup.get_text(" ", strip=True)
+    text = clean_text(text)
+
+    # Keep reasonable amount
+    return text[:9000]
+
+
+def serper_search(api_key: str, query: str, num: int = 10) -> List[Dict[str, Any]]:
+    url = "https://google.serper.dev/search"
+    headers = {"X-API-KEY": api_key, "Content-Type": "application/json"}
+    payload = {"q": query, "num": num}
+
+    r = requests.post(url, headers=headers, json=payload, timeout=REQUEST_TIMEOUT)
     r.raise_for_status()
     data = r.json()
 
-    out: List[Dict[str, str]] = []
-    for item in data.get("organic", []) or []:
+    out = []
+    for item in data.get("organic", [])[:num]:
         out.append(
             {
-                "title": item.get("title", ""),
-                "url": item.get("link", ""),
-                "snippet": item.get("snippet", ""),
+                "title": item.get("title"),
+                "link": item.get("link"),
+                "snippet": item.get("snippet"),
             }
         )
     return out
 
 
-def scrape_page_text(url: str, max_chars: int = 8000) -> str:
-    try:
-        r = requests.get(
-            url,
-            timeout=25,
-            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
-        )
-        r.raise_for_status()
-        soup = BeautifulSoup(r.text, "html.parser")
-
-        # remove obvious noise
-        for tag in soup(["script", "style", "noscript"]):
-            tag.decompose()
-
-        # gather text from headings + paragraphs + lists
-        chunks: List[str] = []
-        for tag in soup.find_all(["h1", "h2", "h3", "p", "li"]):
-            t = tag.get_text(" ", strip=True)
-            if t:
-                chunks.append(t)
-
-        text = "\n".join(chunks)
-        text = re.sub(r"\n{3,}", "\n\n", text).strip()
-        return text[:max_chars]
-    except Exception:
-        return ""
+# ----------------------------
+# “Agent” schemas (Pydantic)
+# ----------------------------
+class CVProfile(BaseModel):
+    target_roles: List[str] = Field(default_factory=list)
+    seniority: str = Field(default="unknown")
+    core_skills: List[str] = Field(default_factory=list)
+    domains: List[str] = Field(default_factory=list)
+    keywords: List[str] = Field(default_factory=list)
 
 
-# -----------------------------
-# JSON EXTRACTION HELPERS
-# -----------------------------
-def extract_first_json(text: str) -> Any:
-    """
-    Extract first JSON object/array from a text blob.
-    """
-    if not isinstance(text, str):
-        text = str(text)
-
-    # direct
-    try:
-        return json.loads(text)
-    except Exception:
-        pass
-
-    # ```json ... ```
-    m = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL | re.IGNORECASE)
-    if m:
-        return json.loads(m.group(1).strip())
-
-    # find first { or [
-    starts = [i for i in [text.find("{"), text.find("[")] if i != -1]
-    if not starts:
-        raise ValueError("No JSON start token found.")
-    start = min(starts)
-
-    stack: List[str] = []
-    for i in range(start, len(text)):
-        ch = text[i]
-        if ch in "{[":
-            stack.append(ch)
-        elif ch in "}]":
-            if not stack:
-                continue
-            top = stack[-1]
-            if (top == "{" and ch == "}") or (top == "[" and ch == "]"):
-                stack.pop()
-                if not stack:
-                    candidate = text[start : i + 1]
-                    return json.loads(candidate)
-
-    raise ValueError("Could not extract a complete JSON blob.")
+class SearchPlan(BaseModel):
+    queries: List[str] = Field(default_factory=list)
 
 
-# -----------------------------
-# READ CV NOW
-# -----------------------------
-CV_TEXT = docx_to_text(CV_DOCX)
+class JobFit(BaseModel):
+    score: float = Field(ge=0, le=10)
+    reasoning: str
+    gaps: List[str] = Field(default_factory=list)
+    recommended_keywords: List[str] = Field(default_factory=list)
 
 
-# -----------------------------
-# AGENTS
-# -----------------------------
-cv_analyst = Agent(
-    role="CV Analyst",
-    goal=(
-        "Read the CV text and produce a grounded, structured evaluation: skills, domains, tools, "
-        "seniority, constraints, and target job titles. Do NOT invent experience."
-    ),
-    verbose=True,
-    backstory="You are a meticulous technical recruiter and scientist. You only use evidence from the CV.",
-)
-
-search_planner = Agent(
-    role="Job Search Planner",
-    goal=(
-        "Turn the CV evaluation into strong search queries that find real job postings "
-        "(prefer official ATS pages like Lever/Greenhouse/Workday/company careers)."
-    ),
-    verbose=True,
-    backstory="You create search queries that reliably surface real job ads, not generic blog posts.",
-)
-
-fit_ranker = Agent(
-    role="Job Fit Ranker",
-    goal=(
-        "Given a list of job posting URLs and the CV evaluation, scrape postings and score fit with clear reasons."
-    ),
-    verbose=True,
-    backstory="You match candidates to jobs honestly, highlighting alignment and gaps without hallucinating.",
-)
+# ----------------------------
+# OpenAI client + “agents”
+# ----------------------------
+def get_openai_client() -> Tuple[OpenAI, str]:
+    load_dotenv()
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        die("Missing OPENAI_API_KEY. Set it in your shell or in a .env file.")
+    model = os.getenv("OPENAI_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
+    return OpenAI(api_key=api_key), model
 
 
-# -----------------------------
-# TASK 1: CV evaluation JSON
-# -----------------------------
-cv_eval_task = Task(
-    description=(
-        "Analyze the CV below and output STRICT JSON only with these keys:\n"
-        "  - core_skills: [..]\n"
-        "  - secondary_skills: [..]\n"
-        "  - domains: [..]\n"
-        "  - tools_and_tech: [..]\n"
-        "  - seniority_level: string\n"
-        "  - strengths: [..]\n"
-        "  - gaps_or_risks: [..]\n"
-        "  - constraints: [..] (location, remote, visa, etc., only if present)\n"
-        "  - target_job_titles: [..]\n"
-        "  - avoid_job_titles: [..]\n\n"
-        "Rules:\n"
-        "  - Ground everything in the CV; do NOT invent.\n"
-        "  - Output JSON only.\n\n"
-        f"CV:\n{CV_TEXT}\n"
-    ),
-    expected_output="A JSON object with the specified keys.",
-    agent=cv_analyst,
-)
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10))
+def llm_json(client: OpenAI, model: str, system: str, user: str) -> Dict[str, Any]:
+    # Uses JSON mode-like prompting; robust enough for this use.
+    resp = client.chat.completions.create(
+        model=model,
+        temperature=0.2,
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+    )
+    text = resp.choices[0].message.content or ""
+    # Attempt to find JSON object in response
+    m = re.search(r"\{.*\}", text, re.DOTALL)
+    if not m:
+        raise ValueError("No JSON object found in model output.")
+    return json.loads(m.group(0))
 
 
-# -----------------------------
-# TASK 2: Build search queries JSON
-# -----------------------------
-criteria_task = Task(
-    description=(
-        "Using the CV evaluation JSON, output STRICT JSON only with these keys:\n"
-        "  - queries: 10 to 14 search queries (Google-style)\n"
-        "  - include_keywords: [..]\n"
-        "  - exclude_keywords: [..]\n"
-        "  - preferred_sources: [..] (lever.co, greenhouse.io, workday, company careers pages)\n\n"
-        "Rules:\n"
-        "  - Queries should find real job postings, not advice articles.\n"
-        "  - Strongly prefer official/company ATS pages.\n"
-        "  - Output JSON only.\n"
-    ),
-    expected_output="A JSON object containing queries and filters.",
-    context=[cv_eval_task],
-    agent=search_planner,
-)
+def agent_cv_analyst(client: OpenAI, model: str, cv_text: str) -> CVProfile:
+    system = (
+        "You are a CV Analyst. Extract a concise structured profile from a CV. "
+        "Return ONLY valid JSON with keys: target_roles (list of strings), seniority (string), "
+        "core_skills (list), domains (list), keywords (list). No extra keys."
+    )
+    user = (
+        "CV TEXT:\n"
+        f"{cv_text}\n\n"
+        "Return JSON only."
+    )
+    data = llm_json(client, model, system, user)
+    return CVProfile(**data)
 
 
-# -----------------------------
-# TASK 3: Search jobs + rank jobs (calls our Python tools)
-# -----------------------------
-def search_and_rank_jobs(criteria: Dict[str, Any], cv_eval: Dict[str, Any]) -> List[Dict[str, Any]]:
-    queries = criteria.get("queries", []) or []
-    exclude_keywords = [x.lower() for x in (criteria.get("exclude_keywords", []) or [])]
+def agent_search_planner(client: OpenAI, model: str, profile: CVProfile) -> SearchPlan:
+    system = (
+        "You are a Job Search Planner. Create effective Google-style queries to find real job postings. "
+        "Return ONLY valid JSON with key: queries (list of strings). Make 6-10 queries."
+    )
+    user = (
+        "PROFILE JSON:\n"
+        f"{profile.model_dump_json(indent=2)}\n\n"
+        "Constraints:\n"
+        "- Prefer queries that return job postings (not advice articles)\n"
+        "- Include role + domain keywords\n"
+        "- Use site: filters only if helpful (optional)\n\n"
+        "Return JSON only."
+    )
+    data = llm_json(client, model, system, user)
+    return SearchPlan(**data)
 
-    # 1) Search
+
+def agent_fit_evaluator(client: OpenAI, model: str, profile: CVProfile, job_title: str, job_text: str, job_url: str) -> JobFit:
+    system = (
+        "You are a Job Fit Evaluator. Score how well the job matches the candidate profile. "
+        "Return ONLY valid JSON with keys: score (0-10), reasoning (string), gaps (list), recommended_keywords (list). "
+        "Be specific and honest. No extra keys."
+    )
+    user = (
+        "CANDIDATE PROFILE:\n"
+        f"{profile.model_dump_json(indent=2)}\n\n"
+        f"JOB TITLE: {job_title}\n"
+        f"JOB URL: {job_url}\n\n"
+        "JOB DESCRIPTION (clean text):\n"
+        f"{job_text}\n\n"
+        "Return JSON only."
+    )
+    data = llm_json(client, model, system, user)
+    return JobFit(**data)
+
+
+# ----------------------------
+# Main
+# ----------------------------
+def main() -> None:
+    load_dotenv()
+
+    serper_key = os.getenv("SERPER_API_KEY", "").strip()
+    if not serper_key:
+        die("Missing SERPER_API_KEY. Set it in your shell or in a .env file.")
+
+    # Read CV
+    if not os.path.exists(CV_FILENAME):
+        die(f"Missing {CV_FILENAME}. Put your CV in this folder and name it exactly: {CV_FILENAME}")
+
+    cv_text = read_docx_as_text(CV_FILENAME)
+    if not cv_text:
+        die("Could not extract text from the DOCX. Is it empty or image-only?")
+
+    # Save extracted text
+    with open("cv_text.txt", "w", encoding="utf-8") as f:
+        f.write(cv_text)
+
+    # OpenAI
+    client, model = get_openai_client()
+
+    logs: List[str] = []
+    logs.append(f"Model: {model}")
+    logs.append("Step 1/4: Building profile from CV...")
+
+    profile = agent_cv_analyst(client, model, cv_text)
+    logs.append(f"Profile: {profile.model_dump()}")
+
+    logs.append("Step 2/4: Creating search queries...")
+    plan = agent_search_planner(client, model, profile)
+    queries = [q for q in plan.queries if q.strip()]
+    if not queries:
+        die("Search planner produced no queries.")
+
+    logs.append("Queries:")
+    logs.extend([f"- {q}" for q in queries])
+
+    # Search + collect URLs
+    logs.append("Step 3/4: Searching job postings (Serper)...")
     seen = set()
-    jobs: List[Dict[str, str]] = []
-    for q in queries:
+    candidates: List[Dict[str, Any]] = []
+
+    for q in queries[:10]:
         try:
-            results = serper_search(q, k=RESULTS_PER_QUERY)
-        except Exception:
+            results = serper_search(serper_key, q, num=8)
+        except Exception as e:
+            logs.append(f"[WARN] Serper failed for query: {q} -> {e}")
             continue
 
-        for r in results:
-            url = (r.get("url") or "").strip()
-            title = (r.get("title") or "").strip()
-            snippet = (r.get("snippet") or "").strip()
-
+        for item in results:
+            url = (item.get("link") or "").strip()
             if not url or url in seen:
                 continue
-
-            # basic exclude filter
-            blob = f"{title} {snippet} {url}".lower()
-            if any(kw and kw in blob for kw in exclude_keywords):
-                continue
-
             seen.add(url)
-            jobs.append({"title": title, "url": url, "snippet": snippet})
+            candidates.append(item)
 
-    # 2) Evaluate top N by scraping
-    evaluated: List[Dict[str, Any]] = []
-    for job in jobs[:MAX_JOBS_TO_EVALUATE]:
-        url = job["url"]
-        page_text = scrape_page_text(url)
+        # small delay to be polite
+        time.sleep(0.3)
 
-        # If we couldn't scrape, still keep it as low-confidence
-        if not page_text:
-            evaluated.append(
-                {
-                    "title": job.get("title", ""),
-                    "company": "",
-                    "location": "",
-                    "url": url,
-                    "fit_score": 3,
-                    "reason": "Could not extract job page text (blocked or dynamic page).",
-                    "risks": ["Could not scrape job page"],
-                }
-            )
+        if len(candidates) >= MAX_JOBS_TO_EVALUATE:
+            break
+
+    if not candidates:
+        die("No job URLs found. Try different queries or check your SERPER_API_KEY.")
+
+    # Scrape and evaluate
+    logs.append("Step 4/4: Scraping and scoring jobs...")
+    scored: List[Dict[str, Any]] = []
+
+    for item in candidates[:MAX_JOBS_TO_EVALUATE]:
+        title = item.get("title") or "Untitled job"
+        url = item.get("link") or ""
+        snippet = item.get("snippet") or ""
+
+        html = fetch_html(url)
+        if not html:
+            logs.append(f"[SKIP] Could not fetch: {url}")
             continue
 
-        # Use the LLM (fit_ranker agent) to score fit based on scraped text
-        prompt = (
-            "Given the CV evaluation JSON and the job posting text, score fit from 1 to 10.\n"
-            "Return STRICT JSON only with keys:\n"
-            "  - fit_score (number 1-10)\n"
-            "  - reason (2-4 short bullets as a single string)\n"
-            "  - company (string if you can infer from text/title else empty)\n"
-            "  - location (string if present else empty)\n"
-            "  - risks (list of 1-3 gaps/risks)\n\n"
-            f"CV_EVAL_JSON:\n{json.dumps(cv_eval, ensure_ascii=False)}\n\n"
-            f"JOB_TITLE:\n{job.get('title','')}\n\n"
-            f"JOB_URL:\n{url}\n\n"
-            f"JOB_TEXT:\n{page_text}\n"
-        )
-
-        # We run this by creating a tiny ad-hoc task executed by the fit_ranker agent
-        tmp_task = Task(
-            description=prompt,
-            expected_output="STRICT JSON only.",
-            agent=fit_ranker,
-        )
-        tmp_crew = Crew(
-            agents=[fit_ranker],
-            tasks=[tmp_task],
-            verbose=False,
-            memory=False,  # critical: no embedchain
-        )
-
-        tmp_result = tmp_crew.kickoff()
-        tmp_text = str(tmp_result)
+        job_text = extract_main_text_from_html(html)
+        if len(job_text) < 200:
+            logs.append(f"[SKIP] Too little text extracted: {url}")
+            continue
 
         try:
-            scored = extract_first_json(tmp_text)
-            if isinstance(scored, dict):
-                evaluated.append(
-                    {
-                        "title": job.get("title", ""),
-                        "company": scored.get("company", ""),
-                        "location": scored.get("location", ""),
-                        "url": url,
-                        "fit_score": scored.get("fit_score", 0),
-                        "reason": scored.get("reason", ""),
-                        "risks": scored.get("risks", []),
-                    }
-                )
-            else:
-                raise ValueError("Not a JSON object")
-        except Exception:
-            evaluated.append(
-                {
-                    "title": job.get("title", ""),
-                    "company": "",
-                    "location": "",
-                    "url": url,
-                    "fit_score": 4,
-                    "reason": "Could not parse scorer output reliably.",
-                    "risks": ["Scoring parse failure"],
-                }
-            )
+            fit = agent_fit_evaluator(client, model, profile, title, job_text, url)
+        except Exception as e:
+            logs.append(f"[WARN] Fit evaluator failed for {url}: {e}")
+            continue
 
-    # sort by fit_score desc
-    evaluated.sort(key=lambda x: float(x.get("fit_score", 0) or 0), reverse=True)
-    return evaluated
+        scored.append(
+            {
+                "title": title,
+                "url": url,
+                "snippet": snippet,
+                "score": float(fit.score),
+                "reasoning": fit.reasoning,
+                "gaps": fit.gaps,
+                "recommended_keywords": fit.recommended_keywords,
+            }
+        )
+        logs.append(f"[OK] {fit.score:.1f}/10 — {title}")
+
+    if not scored:
+        die("No jobs could be scored (scraping/LLM issues). Try again or reduce filters.")
+
+    scored.sort(key=lambda x: x["score"], reverse=True)
+
+    # Output JSON
+    with open("shortlisted_jobs.json", "w", encoding="utf-8") as f:
+        json.dump(scored, f, ensure_ascii=False, indent=2)
+
+    # Output Markdown
+    lines = []
+    lines.append("# Shortlisted Jobs (Ranked)\n")
+    lines.append("| Rank | Score | Job Title | Link | Notes |")
+    lines.append("|------|------:|----------|------|-------|")
+
+    for i, job in enumerate(scored, start=1):
+        title = job["title"].replace("|", "\\|")
+        url = job["url"]
+        score = f'{job["score"]:.1f}'
+        notes = clean_text(job["reasoning"])[:140].replace("|", "\\|")
+        lines.append(f"| {i} | {score} | {title} | [link]({url}) | {notes} |")
+
+    lines.append("\n## Gaps to Address (from top matches)\n")
+    all_gaps = []
+    for job in scored[:5]:
+        for g in job.get("gaps", []):
+            if g and g not in all_gaps:
+                all_gaps.append(g)
+
+    if all_gaps:
+        for g in all_gaps[:20]:
+            lines.append(f"- {g}")
+    else:
+        lines.append("- (No major gaps detected.)")
+
+    with open("shortlisted_jobs.md", "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+
+    # Logs
+    with open("crew_output.txt", "w", encoding="utf-8") as f:
+        f.write("\n".join(logs))
+
+    print("\n✅ Done!")
+    print("Created:")
+    print("- shortlisted_jobs.md")
+    print("- shortlisted_jobs.json")
+    print("- crew_output.txt")
+    print("- cv_text.txt")
 
 
-class PythonRunner:
-    """
-    Tiny helper object to run our python functions inside a Task step:
-    We will call it from a Task by embedding the results in the final output.
-    """
-    @staticmethod
-    def run(criteria_json_text: str, cv_eval_json_text: str) -> str:
-        criteria = json.loads(criteria_json_text)
-        cv_eval = json.loads(cv_eval_json_text)
-        ranked = search_and_rank_jobs(criteria, cv_eval)
-        return json.dumps(ranked, ensure_ascii=False, indent=2)
-
-
-rank_task = Task(
-    description=(
-        "You will receive CV evaluation JSON and search criteria JSON from prior tasks.\n"
-        "Your job is to output STRICT JSON ONLY: a list of ranked jobs.\n"
-        "Do NOT include any extra text.\n"
-        "If you cannot do web search directly, still provide the JSON format with empty list.\n"
-        "IMPORTANT: Output MUST be JSON list only.\n"
-    ),
-    expected_output="A JSON list of ranked jobs.",
-    context=[cv_eval_task, criteria_task],
-    agent=fit_ranker,
-)
-
-# -----------------------------
-# RUN MAIN CREW (memory disabled)
-# -----------------------------
-main_crew = Crew(
-    agents=[cv_analyst, search_planner, fit_ranker],
-    tasks=[cv_eval_task, criteria_task],
-    verbose=True,
-    memory=False,  # critical: prevents embedchain import path
-)
-
-cv_eval_out = main_crew.kickoff()
-cv_eval_text = str(cv_eval_out)
-
-# Extract CV eval JSON
-cv_eval_json = extract_first_json(cv_eval_text)
-if not isinstance(cv_eval_json, dict):
-    raise RuntimeError("Could not parse CV evaluation JSON.")
-
-# Now run criteria task alone (already in main_crew output, but we do it cleanly)
-criteria_crew = Crew(
-    agents=[search_planner],
-    tasks=[criteria_task],
-    verbose=True,
-    memory=False,
-)
-criteria_out = criteria_crew.kickoff()
-criteria_text = str(criteria_out)
-
-criteria_json = extract_first_json(criteria_text)
-if not isinstance(criteria_json, dict):
-    raise RuntimeError("Could not parse criteria JSON.")
-
-# Search + rank using Python tools, then save
-ranked_jobs = search_and_rank_jobs(criteria_json, cv_eval_json)
-
-with open("crew_output.txt", "w", encoding="utf-8") as f:
-    f.write("CV_EVAL_JSON:\n")
-    f.write(json.dumps(cv_eval_json, ensure_ascii=False, indent=2))
-    f.write("\n\nCRITERIA_JSON:\n")
-    f.write(json.dumps(criteria_json, ensure_ascii=False, indent=2))
-    f.write("\n\nRANKED_JOBS_JSON:\n")
-    f.write(json.dumps(ranked_jobs, ensure_ascii=False, indent=2))
-
-with open("shortlisted_jobs.json", "w", encoding="utf-8") as f:
-    json.dump(ranked_jobs, f, ensure_ascii=False, indent=2)
-
-# markdown table
-md_lines = []
-md_lines.append("| # | Fit | Title | Company | Location | URL |")
-md_lines.append("|---:|---:|---|---|---|---|")
-for i, job in enumerate(ranked_jobs, start=1):
-    md_lines.append(
-        f"| {i} | {job.get('fit_score','')} | {str(job.get('title','')).replace('|','\\|')} | "
-        f"{str(job.get('company','')).replace('|','\\|')} | {str(job.get('location','')).replace('|','\\|')} | "
-        f"{job.get('url','')} |"
-    )
-
-with open("shortlisted_jobs.md", "w", encoding="utf-8") as f:
-    f.write("\n".join(md_lines))
-
-print("DONE. Wrote: crew_output.txt, shortlisted_jobs.json, shortlisted_jobs.md")
+if __name__ == "__main__":
+    main()
