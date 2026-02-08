@@ -1,39 +1,49 @@
-# CV Job Finder (AI Agent–based)
+# CV Job Finder
 
-A lightweight Python tool that uses **LLM-based AI agents** to analyze a CV, search real job postings, and rank jobs by relevance.
+A lightweight Python tool that uses a **large language model (LLM)** to analyze a CV, search real job postings, and rank jobs by relevance.
 
-The agents reason over your CV and job descriptions using **prompt-based analysis (RAG-style, without vector databases)**.
+The tool combines LLM-based reasoning with web search and basic scraping to compare a candidate profile with job descriptions.
 
 ---
 
 ## What It Does
 
-- Reads a CV (`.docx`) locally
-- AI agent extracts skills, domains, and seniority
-- AI agent generates job search queries
-- Finds real job postings via Google (Serper API)
-- Scrapes job descriptions
-- AI agent evaluates job–CV fit with reasoning and gaps
-- Outputs ranked job matches
+- Reads a CV (`.docx`) locally  
+- Extracts skills, domains, and seniority using an LLM  
+- Generates job search queries  
+- Finds real job postings via Google (Serper API)  
+- Scrapes job descriptions from the web  
+- Evaluates job–CV fit with scores, reasoning, and gaps  
+- Outputs ranked job matches  
 
 ---
 
-## AI Architecture (Simplified)
+## How It Works
 
-- **CV Analyst Agent** – builds a structured profile from the CV  
-- **Search Planner Agent** – designs job search queries  
-- **Fit Evaluator Agent** – scores relevance and highlights gaps  
+The workflow is organized into three logical steps:
 
-Agents are implemented as **plain Python functions calling an LLM**  
-(no CrewAI framework, no vector database).
+- **CV Analysis** – builds a structured profile from the CV  
+- **Search Planning** – creates job search queries from the profile  
+- **Job Evaluation** – scores each job against the profile  
+
+Each step is implemented as a Python function calling the same LLM model with a different prompt.
+
+---
+
+## Techniques Used
+
+- Prompt-based structured extraction (JSON outputs)  
+- Web search via Serper API  
+- HTML scraping with BeautifulSoup  
+- Deterministic Python orchestration  
 
 ---
 
 ## Requirements
 
-- Python **3.12**
-- OpenAI API key
-- Serper API key
+- Python **3.12**  
+- OpenAI API key  
+- Serper API key  
 
 ---
 
@@ -56,43 +66,39 @@ $env:SERPER_API_KEY="your-serper-key"
 ---
 
 ## Prepare CV
-
-Place your CV in the project folder as **`cvLLM.docx`**
+Place your CV in the project folder as (`cvLLM.docx`)
 
 ---
 
 ## Run
-```bash
-python cv_job_finder.py
-```
+`python cv_job_finder.py`
 
 ---
 
 ## Output
+The script generates the following files:
 
-- `shortlisted_jobs.md` – ranked jobs
+`shortlisted_jobs.md` – ranked jobs (Markdown)
 
-- `shortlisted_jobs.json` – structured results
+`shortlisted_jobs.json` – structured results
 
-- `crew_output.txt` – agent reasoning/logs
+`crew_output.txt` – execution logs
 
-- `cv_text.txt` – extracted CV text
-
-- All outputs are generated locally.
+`cv_text.txt` – extracted CV text
 
 ---
 
 ## Privacy
 
-- CV processed locally
+- CV is processed locally
 
-- No data stored or retained
+- External calls are limited to:
 
-- External calls: OpenAI (LLM), Serper (job search)
+- OpenAI (LLM reasoning)
 
----
+- Serper (job search)
 
 ## License
-
 MIT
+
 
