@@ -41,15 +41,15 @@ python cv_job_finder.py
 
 1- Reads your CV from .docx.
 
-2- AI agent extracts your profile (skills, domains, seniority).
+2- An AI agent extracts your profile (skills, domains, seniority).
 
-3- AI agent generates job search queries.
+3- Another AI agent generates job search queries.
 
 4- Searches job postings via Serper.
 
 5- Scrapes job pages.
 
-6- AI agent scores each job vs your CV and ranks the best matches.
+6- The last AI agent scores each job vs your CV and ranks the best matches.
 
 
 ### Privacy & Safety
