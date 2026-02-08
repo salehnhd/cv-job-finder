@@ -5,27 +5,30 @@ A Python tool built with CrewAI that analyzes a CV in `.docx` format, searches f
 ---
 
 ## Architecture
+
+The diagram below shows the end-to-end workflow and how CrewAI agents interact with the CV, job search, and ranking pipeline.
+
 ```mermaid
 flowchart TD
-    A[User CV<br/>(.docx)] --> B[CV Parsing Layer<br/>python-docx]
-    B --> C[Extracted CV Text<br/>cv_text.txt]
+    A[User CV\n(.docx)] --> B[CV Parsing Layer\npython-docx]
+    B --> C[Extracted CV Text\ncv_text.txt]
 
-    C --> D[Agent 1: CV Analyst<br/>(CrewAI)]
-    D --> D1[Structured Profile<br/>Skills · Domains · Seniority]
+    C --> D[Agent 1: CV Analyst\nCrewAI]
+    D --> D1[Structured Profile\nSkills | Domains | Seniority]
 
-    D1 --> E[Agent 2: Job Search Planner<br/>(CrewAI)]
+    D1 --> E[Agent 2: Job Search Planner\nCrewAI]
     E --> E1[Search Queries]
 
-    E1 --> F[Job Search API<br/>(Serper)]
+    E1 --> F[Job Search API\nSerper]
     F --> G[Job Posting URLs]
 
-    G --> H[Web Scraper<br/>Requests + BeautifulSoup]
+    G --> H[Web Scraper\nRequests + BeautifulSoup]
     H --> H1[Clean Job Descriptions]
 
-    H1 --> I[Agent 3: Job Fit Evaluator<br/>(CrewAI)]
+    H1 --> I[Agent 3: Job Fit Evaluator\nCrewAI]
     D1 --> I
 
-    I --> J[Ranked Job Matches<br/>Score · Reasoning · Gaps]
+    I --> J[Ranked Job Matches\nScore | Reasoning | Gaps]
 
     J --> K[Output Files]
     K --> K1[shortlisted_jobs.json]
