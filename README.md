@@ -34,7 +34,6 @@ flowchart TD
     K --> K1[shortlisted_jobs.json]
     K --> K2[shortlisted_jobs.md]
     K --> K3[crew_output.txt]
-
 ```
 
 ## Requirements
