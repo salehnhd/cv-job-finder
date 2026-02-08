@@ -3,6 +3,8 @@
 # --------------------
 venv/
 venv312/
+.venv/
+env/
 
 # --------------------
 # Python cache files
@@ -19,6 +21,7 @@ crew_output.txt
 shortlisted_jobs.json
 shortlisted_jobs.md
 cv_text.txt
+outputs/
 
 # --------------------
 # Secrets and environment files
@@ -31,9 +34,21 @@ cv_text.txt
 *.docx
 
 # --------------------
+# Logs / temp
+# --------------------
+*.log
+*.tmp
+
+# --------------------
 # OS / editor noise
 # --------------------
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
+
+# --------------------
+# Misc
+# --------------------
+.python-version
+.ipynb_checkpoints/
