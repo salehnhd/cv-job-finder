@@ -1,55 +1,22 @@
 # CV Job Finder (CrewAI)
 
-A Python tool built with CrewAI that analyzes a CV in `.docx` format, searches for relevant job postings online, scrapes job descriptions, and ranks how well each job matches the CV using LLM-based agents.
+Paste your CV (DOCX) → run one command → get a ranked list of job links + fit scores + gaps.
+
+**Outputs**
+- `shortlisted_jobs.md` (easy to read)
+- `shortlisted_jobs.json` (structured)
+- `crew_output.txt` (full logs)
 
 ---
 
-## Architecture
+## Quick Start (Windows, 5 minutes)
 
-The diagram below shows the end-to-end workflow and how CrewAI agents interact with the CV, job search, and ranking pipeline.
+### 1) Download this project
+- Click **Code → Download ZIP**
+- Extract it
+- Open PowerShell in the extracted folder
 
-```mermaid
-flowchart TD
-    A[User CV DOCX] --> B[CV Parsing Layer python-docx]
-    B --> C[Extracted CV Text]
-
-    C --> D[Agent 1 CV Analyst CrewAI]
-    D --> D1[Structured Profile Skills Domains Seniority]
-
-    D1 --> E[Agent 2 Job Search Planner CrewAI]
-    E --> E1[Search Queries]
-
-    E1 --> F[Job Search API Serper]
-    F --> G[Job Posting URLs]
-
-    G --> H[Web Scraper Requests BeautifulSoup]
-    H --> H1[Clean Job Descriptions]
-
-    H1 --> I[Agent 3 Job Fit Evaluator CrewAI]
-    D1 --> I
-
-    I --> J[Ranked Job Matches Scores Reasoning Gaps]
-
-    J --> K[Output Files]
-    K --> K1[shortlisted_jobs.json]
-    K --> K2[shortlisted_jobs.md]
-    K --> K3[crew_output.txt]
-```
-
-## Requirements
-
-You need:
-
-- **Python 3.12**
-- An **OpenAI API key**
-- A **Serper API key** (used for job search)
-
----
-
-## Installation (Windows)
-
-Open **PowerShell**, navigate to the project folder, and run:
-
+### 2) Create and activate a virtual environment
 ```powershell
 py -3.12 -m venv venv
 .\venv\Scripts\activate
@@ -57,70 +24,64 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-# Configure API Keys
-
-In the same PowerShell window, set your API keys:
+### 3) Set your API keys
 ```powershell
 $env:OPENAI_API_KEY="sk-..."
 $env:SERPER_API_KEY="..."
 ```
 
-# Prepare Your CV
+### 4) Add your CV
+Put your CV in the project folder and name it exactly: "cvLLM.docx"
 
-Place your CV file in the project folder.
-
-Name the file exactly:
-```powershell
-cvLLM.docx
-```
-
-# Run the Script
-
-With the virtual environment still active, run:
-```powershell
+### 5) Run
 python cv_job_finder.py
+
+
+### What it does:
+
+1- Reads your CV from .docx.
+
+2- AI agent extracts your profile (skills, domains, seniority).
+
+3- AI agent generates job search queries.
+
+4- Searches job postings via Serper.
+
+5- Scrapes job pages.
+
+6- AI agent scores each job vs your CV and ranks the best matches.
+
+
+### Privacy & Safety
+
+1- Your CV file stays on your machine.
+
+2- The script sends text to:
+
+- OpenAI (LLM reasoning)
+
+- Serper (job search)
+
+- Do not upload your CV to GitHub.
+
+- .gitignore prevents committing .docx, .env, and outputs.
+
+
+### Troubleshooting
+
+- Python not found / wrong version
+
+```powershell
+py -0p
 ```
 
-# Output Files
+- Make sure Python 3.12 is installed.
 
-After the script finishes, the following files will be created:
-
--shortlisted_jobs.md – human-readable table of best-matching jobs.
-
--shortlisted_jobs.json – structured job data.
-
--crew_output.txt – full agent reasoning and logs.
+- Missing keys: Ensure OPENAI_API_KEY and SERPER_API_KEY are set (or .env exists).
 
 
 
-
-# Notes
-
--CrewAI memory and RAG are disabled to avoid heavy dependencies on Windows.
-
--Your CV is processed locally and is not stored or uploaded.
-
--Only OpenAI and Serper APIs are called externally.
+### Disclaimer 
+This is an experimental tool. Always verify job postings and requirements manually.
 
 
-
-
-# Troubleshooting
-
-If the script fails:
-
--Make sure Python 3.12 is installed and active.
-
--Ensure the virtual environment is activated.
-
--Verify both API keys are set.
-
--Check that the CV filename is exactly cvLLM.docx.
-
-
-
-# Disclaimer
-
--This project is provided for experimentation and personal use.
-
--Always verify job postings manually before applying.
