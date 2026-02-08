@@ -9,12 +9,13 @@ Paste your CV (DOCX) → run one command → get a ranked list of job links + fi
 
 ---
 
-## Quick Start (Windows, 5 minutes)
+## Quick Start (tested on Windows 11, 5 minutes)
 
 ### 1) Download this project
 - Click **Code → Download ZIP**
 - Extract it
 - Open PowerShell in the extracted folder
+
 
 ### 2) Create and activate a virtual environment
 ```powershell
@@ -23,6 +24,7 @@ py -3.12 -m venv venv
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
+
 
 ### 3) Set your API keys
 ```powershell
@@ -36,6 +38,7 @@ Put your CV in the project folder and name it exactly: "cvLLM.docx"
 ### 5) Run
 python cv_job_finder.py
 
+---
 
 ### What it does:
 
@@ -51,6 +54,7 @@ python cv_job_finder.py
 
 6- The last AI agent scores each job vs your CV and ranks the best matches.
 
+---
 
 ### Privacy & Safety
 
@@ -66,6 +70,7 @@ python cv_job_finder.py
 
 - .gitignore prevents committing .docx, .env, and outputs.
 
+---
 
 ### Troubleshooting
 
@@ -79,7 +84,7 @@ py -0p
 
 - Missing keys: Ensure OPENAI_API_KEY and SERPER_API_KEY are set (or .env exists).
 
-
+---
 
 ### Disclaimer 
 This is an experimental tool. Always verify job postings and requirements manually.
