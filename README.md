@@ -85,11 +85,11 @@ python cv_job_finder.py
 
 After the script finishes, the following files will be created:
 
--shortlisted_jobs.md – human-readable table of best-matching jobs
+-shortlisted_jobs.md – human-readable table of best-matching jobs.
 
--shortlisted_jobs.json – structured job data
+-shortlisted_jobs.json – structured job data.
 
--crew_output.txt – full agent reasoning and logs
+-crew_output.txt – full agent reasoning and logs.
 
 
 
@@ -109,17 +109,18 @@ After the script finishes, the following files will be created:
 
 If the script fails:
 
--Make sure Python 3.12 is installed and active
+-Make sure Python 3.12 is installed and active.
 
--Ensure the virtual environment is activated
+-Ensure the virtual environment is activated.
 
--Verify both API keys are set
+-Verify both API keys are set.
 
--Check that the CV filename is exactly cvLLM.docx
+-Check that the CV filename is exactly cvLLM.docx.
 
 
 
 # Disclaimer
 
 -This project is provided for experimentation and personal use.
+
 -Always verify job postings manually before applying.
